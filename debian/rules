@@ -1,0 +1,47 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+# Uncomment this to turn on verbose mode.
+export DH_VERBOSE=1
+
+include /usr/share/dpkg/architecture.mk
+
+export DEB_LDFLAGS_MAINT_PREPEND := -Wl,-z,defs
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	cmake .
+	dh_auto_build
+
+override_dh_auto_test:
+    ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	dh_auto_test -O--buildsystem=cmake -O--no-parallel
+endif
+
+override_dh_clean:
+	dh_clean
+	$(RM) -r CMakeCache.txt \
+		CMakeFiles \
+		cmake_install.cmake \
+		CTestTestfile.cmake \
+		Makefile \
+		obj-*/ \
+		spit/CMakeFiles \
+		spit/cmake_install.cmake \
+		spit/CTestTestfile.cmake \
+		spit/DartConfiguration.tcl \
+		spit/Makefile \
+		spit/size_vs_latency.gnu \
+		spit/size_vs_latency_r.txt \
+		spit/size_vs_latency_w.txt \
+		spit/spit-latency-histogram-read.gnu \
+		spit/spit-latency-histogram-read.txt \
+		spit/spit-latency-histogram-write.gnu \
+		spit/spit-latency-histogram-write.txt \
+		spit/spit-version.h \
+		spit/time_vs_latency.gnu \
+		spit/t_vs_lat.txt \
+		spit/wow*

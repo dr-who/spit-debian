@@ -1,0 +1,438 @@
+= spit(1)
+Stuart Inglis, Ph.D.
+:doctype: manpage
+:man manual: spit manual
+:man source: spit 1.2
+:page-layout: base
+
+== NAME
+
+spit - Stu's powerful I/O tester
+
+== SYNOPSIS
+
+spit [ _OPTIONS_ ] ... _DEVICE(S)_ ... _COMMANDS_...
+
+== DESCRIPTION
+
+Spit is a comprehensive tool designed for testing block devices and
+file systems. It offers a robust suite of testing capabilities including
+latency tests, speed tests, and multi-threaded conflict resolution tests.
+
+It's particularly useful for validating system performance and reliability,
+with features specifically designed to test Non-Uniform Memory Access (NUMA)
+actions, caches, read-ahead and action ordering. This functionality helps in identifying and resolving
+ issues that might arise in custom block devices and file systems.
+
+Spit also supports decoupling of writes from verification, allowing
+system reboots in between, which is crucial for system resilience
+testing.
+
+This makes spit an indispensable tool for system administrators, developers,
+and performance engineers looking to evaluate and improve system performance
+and stability.
+
+== FEATURES
+
+
+spit(1) performs various I/O tests. The range of tests includes:
+
+* reading, writing, forwards, backwards, in stripes, back/forth, subsampling
+* time based tests, LBA coverage tests, limited number of position tests
+* sequential, random, mostly sequential
+* multiple measurements per position, output of median/max values
+* variable IOs in flight and steps
+* static and variable block sizes
+* multiple threads (with an AIO context per thread)
+* multiple commands
+* analysis of the underlying block devices for amplification measure
+* verification of writes
+* statistical output, min/max/mean/median/9s/and more
+* test patterns for readahead busting
+* *spit -h* to get a lot of example commands
+
+== SIMPLE EXAMPLE
+
+spit [OPTIONS] -f _device_ -c _commands_
+
+e.g.
+  *spit -f /dev/sda -c rzs1k1024*
+
+To see the IO operations and positions use the dump/*-d* option to see the first 20 positions.
+
+e.g. *spit -f /dev/sda -c rzs1k1024 -d 20*
+
+== PROCESS FLOW
+
+The process flow is as follows:
+
+. Generate an array of positions. The position structure includes
+location, size and records the various timing information.
+
+. A set of precondition actions are optionally performed.
+
+. An outer loop is created. The outer loop is to enable periodic adjustment of the positions (resampling etc).
+
+. An inner loop is created. The inner loop quickly iterates over the
+position array. It has a variety of early exit conditions including:
+
+* bytes-processed limit
+* positions-processed limit
+* time-limit
+
+. The positions and their timing/location information can be optionally dumped to a file.
+
+. Performance/latency statistics are generated.
+
+== DEVICE(S)
+ *-f device*::
+   Specific a single block device (e.g. -f /dev/ram0)
+
+ *-F prefix*::
+   The filesystem filename prefix for filesystem tests (e.g. -F testprefix -j 32). *-F* is an alternative to *-f* and conflicts with it. Choose *-f* or *-F prefix*.
+
+ *-I filename*::
+   Specific a file that contains a list of device names (e.g. -I devices.txt). The *devices.txt* file contains one device per line. To process 200 block devices at once, create devices.txt with 200 lines.
+   e.g. *spit -I devices -c rs1k1024* will start 200 threads, one per device, and run the same command on them. Note in this case the starting position is not specified so each drive will start at a random location. Adding *z* will start each job from position zero.
+
+ *-O filename*::
+   Specifies a list of raw devices, matched with the *-f* option shows
+   device read/write amplification. e.g. *spit -f /dev/md0 -O underlyingdevices.txt*
+
+== OPTIONS
+ *-h*::
+   Displays a myriad of testing commands
+
+ *-d n*::
+   Dump the first *n* positions to understand the IO profile.
+
+ *-G size*::
+   Limit the positions to a maximum of *size* GB (e.g. -G 32). Without a suffix the units are in GB. Optional suffixes include: GiB, TiB, TB, PiB, PB.
+
+ *-B filename*::
+   The benchmarking file that records the regular console output to the benchmark file. The format is described in the second below. To get more fine grained results decrease the *-s time* option.
+
+ *-P filename*::
+   All positions with their size and timing and read/write actions are output. This file can be used by *spitchecker* to verify the positions between run. Overlapping write actions that overlap in position are filtered to keep the most recent action.  The positions file can be later verified using the *spitchecker(1)* program. If *-P -* is used instead of a filename, the positions will be stream to stdout (without overlap filtering) so verification may not be possible if writes overlap.
+
+ *-s time*::
+   Specify the time between regular output. The default is *-s 1*, which is one output line per second. *-s 0.01* will output every 1/100th of a second. *-s 0* will start off fast and slow time over time.
+   
+ *-t s*::
+   Limit the execution to *s* seconds (e.g. -t 30)
+
+ *-T s*::
+   Hard exit(-1) execution if spit is still running after *s* seconds.
+
+ *-L GiB*::
+   Specify the amount of RAM to use for the position information. `spit` stores information about each position, so RAM scales up with the number of positions. Less RAM can be used by having larger block sizes. More positions can be obtained by using more RAM and/or larger block sizes.
+
+*-M options*::
+   Output MySQL options per test. (e.g. -M iotype=write,opsize=64,iopattern=rand,qd=128,devicestate=burst,\
+   degraded=0,k=10,m=2,encryption=none,checksum=crc32c,cache=1,precondition=GI20000)
+
+ *-N options*::
+   Output MySQL options per machine/type. (e.g. -N os=centos,version=1.2.59,machine=wow,blockdevice=lsiraid)
+
+ *-P filename*::
+   Save position information to *filename*. The positions file contains the device, offset, size, random seed, start time, end time, latency, and more.
+
+ *-R seed*::
+   Specify the starting random *seed*
+
+ *-v*::
+   Verify writes by reading and checking. The positions can also be written using the global *P filename* command, then verified with *spitchecker*
+
+== COMMANDS
+
+A command is a single contiguous string. Spaces are ignored if the
+entire string is quoted. An example of a command string may look like:
+
+*spit -f /dev/device -c rk64P1000s3*
+
+Note: For readability it is possible to pass in the command options surround by double quotes.
+
+*spit -f /dev/device -c "r z s1 k1024 q1"*
+
+The command options are described below:
+
+ *r*::
+   Performs reads
+
+ *w*::
+   Performs writes
+
+ *c*::
+   Copy regions, perform a read and then a write of the data 1/2 LBA away.
+
+ *m*::
+   Double the number of test positions, and add a read operation to the position of any previous write operation. Since the number of positions is usually much more than the QD there is no in-flight issue. *m* can be combined with reading/writing or anymix. (e.g. ws0m)
+
+ *An*:: After <n> MiB of IO, randomly change position inside the LBA range. e.g. to specify sequential reads and every 4 MiB jump to a new location use *spit -c rs1k64A4*
+
+ *pN*::
+   Set the read/write ratio to *N*. (e.g. p0 is write only, p1 is read only, p0.75 is 75% reads)
+
+ *Glow-high*::
+   Limit the position range to *low* to *high* GB. (e.g. G2-3).
+
+ *H*::
+   Alternate the IOs per NUMA. e.g. run the first command first thread from NUMA0, then first command second thread from NUMA1. Use the *-d 10* option to dump out the commands per thread to understand it quickly.
+
+ *j N*::
+   Create *N* threads with the same command. Using lowercase *j* the LBA range will first be divided by *N* to avoid overlapping thread ranges. Each thread will be seeded with a unique random value so the random positions will not be the same. 
+
+ *J N*::
+   Similar to lowercase *j*, but with uppercase *J* the range will be the same for all threads. Allows cache test and other conflict resolution.
+
+ *kN* or *klowBS-highBS*::
+   Block size or _lowblocksize_ to _highblocksize_ range. (e.g. k4-128). The hypen as a range will pick a value between the low and high range, in multiples of a 4KiB block size. The range with a colon (e.g. k4-128) will only pick values that are also powers of 2.
+
+ *n*::
+   Use random positions with replacement 
+
+ *N*::
+   Add the maximum block size to all positions
+
+ *qN*::
+   Queue depth
+
+ *sN*::
+   number of contiguous sequence regions. *s0* means random, *s1* means
+   a single linear stream, *s32* means 32 contigous stream.
+
+ *s0.x*::
+   Between s0 (random) and s1 (linear stream) there is a range of s0.0 up to s1. The s0.1 will be lineared by with a probability of 0.1 the location will be randomised.
+
+ *sN-maxSizeInKiB*::
+   Specify the number of continuous sequence regions, include the maximum
+   continuous length in KiB. e.g. s32-1024 makes 32 contiguous regions with a
+   maximum size of 1024 KiB (1 MiB).
+
+ *Sn*::
+   Speed contrained IO. e.g. S100 with do 100 IOs per second.
+
+ *u*::
+   Generate pairs of writes followed by reads with unique seeds. Combined with
+   multiple threads and G_ (LBA thread separation) and QD=1, this enables POSIX w/r testing.
+
+ *z*::
+   Start sequential positions from block 0
+
+ *Zn*::
+   Start sequential positions from block *n*
+
+ *D*::
+   Turn off O_DIRECT device access mode. e.g. required for ZFS and similar file systems.
+
+=== Scale/position commands
+
+ *Pn*::
+   Limit the number of positions to *n*
+
+=== Timing commands
+
+ *Bn*::
+   Before the command starts, wait *n* seconds
+
+ *Wn*::
+   Wait for *n* seconds between iterations
+
+ *Tn*::
+   Limits the thread/command to *n* seconds
+
+ *xn*::
+   Lower case *x*. Cover each of the LBA positions *n* times. e.g. -c rs1x1 will cover the LBA range and will ignore the time duration commands. If combined with P1000x1, this will repeat the 1,000 IO operations until a total amount of IO equals the size of the LBA (e.g. millions of times to get to TB).
+
+ *Xn*::
+   Upper case *X*. Instead of time based, iterate until the positions have been processed
+   *n* times. e.g. if combined with P1000X1 this will process 1,000 IOs only.
+
+== Patterns
+*rzs1P100*: read the first 100 positions starting from zero, 4 KiB blocks.
+
+*rzs1P100k1024*: read the first 100 positions starting from zero, 1024 KiB/1 MiB blocks.
+
+*rs1P100*: read 100 contiguous positions, offset by a random amount
+
+*rzs1P100j8G_*: read 100 contiguous positions, offset by a random amount per thread, first carving up the LBA range.
+
+*rzs1P+100*: read operations, 100 positions equally spaced across the LBA range, time based.
+
+*rzs1P+1000X1*: read operations, 100 positions equally spaced across the LBA range, do 1,000 operations then stop. Uppercase *X*.
+
+*rzs1P+1000x1*: read operations, 100 positions equally spaced across the LBA range, repeat until IO equals the size of the LBA. Lowercase *x*.
+
+*rzs1P-100*: read operations, 100 positions randomly picked with replacement.
+
+*rzs1P.100*: read operations, alternative start, end, start+1...
+
+*ck64*: copy the region using 64 KiB blocks
+
+*s1z*: sequential, one contiguous region starting from zero
+
+*s1*: sequential, one contiguous region starting from a random offset
+
+*s0*: not sequential. e.g. random
+
+*s2*: two sequential regions, dividing the region into two.
+
+*s9*: two sequential regions, dividing the region into nine
+
+*s-1z*: reverse sequential starting from zero.
+
+*s1*: monotonically increasing...
+
+*s0*: random...
+
+*s0.05*: almost entirely random, with a few monotonically increasing positions
+
+*s0.95*: almost entirely monotonic
+
+*s0.95-20* with a 0.05 prob of swapping a position with another within 20 places.
+
+*rs1k4q1* sequential 4KiB reads, 1 IO in flight
+
+*rs1k4-128q1* sequential reads, using block size 4 to 128 KiB, 1 IO in flight
+
+*rs1k64A4q1* sequential reads, 64 KiB size, resetting position every 4 MiB.
+  
+
+== Benchmarking
+
+=== Sequential reads / writes
+
+In the following commands, replace *r* with *w* for writes.
+
+*spit -f /dev/device -c rk64*
+
+  Performs a single thread/job that performs reads, with 64 KiB reads
+
+*spit -f /dev/device -c rk64 -j 32*
+
+  Create 32 threads, with a single contigous read inside each thread
+
+*spit -f /dev/device -c r32k64*
+
+  Create a single threads, break the device into 32 contiguous regions
+
+
+=== Random read / writes
+
+*spit -f /dev/device -c rs0*
+
+  Performs a single thread/job, random 4KiB reads
+
+*spit -f /dev/device -c rs0 -j 32*
+
+  Creates 32 threads, reads random 4KiB reads
+
+*spit -f /dev/device -c rs0 -j 32 -G1*
+
+  Creates 32 threads, reads randomly 4KiB reads, limited to first 1 GB.
+  For devices with cache these operations should be cached.
+
+*spit -f /dev/device -c rP10000*
+
+  Read from the first 10,000 positions (4 KiB) blocks in a device.
+
+
+=== Mixing reads/writes
+
+*spit -f /dev/device -c mP10000 -c rk64*
+
+  Two threads, one reading/write metadata to 10,000 positions. Another
+  thread performing sequential reads.
+
+*spit -f /dev/device -c w -c r*
+
+  Two threads, both sequential, one reading, one writing.
+
+*spit -f /dev/device -c ws0 -c rs0*
+
+  Two threads, both random, one reading, one writing.
+
+*spit -f /dev/device -c ws1G0-100 -c "w s0 G100-200"*
+
+  On a 200 GB device perform linear writes in the first half and
+  random writes on the second half.
+
+== File Formats
+
+=== Position format (-P output)
+
+The position file is tab separated. Make sure you process with tabs, as two of the columns include " GB" as a suffix.
+
+. Device name
+. Position on disk (in bytes)
+. Position on disk (in GB)
+. Position (as a percentage of the device)
+. Action: 'R', 'W'
+. Block length (in bytes)
+. Maximum block device size
+. Maximum block device size (in GB)
+. Seed (used to calculate the random block)
+. Submit time
+. Finish time
+. Mean IO time
+. Position index
+. Number of samples that were performed
+. Median IO time
+. Max IO time
+
+=== Benchmark format (-B output)
+
+The benchmark format is tab separated.
+
+. Elapsed time (seconds)
+. Unix time (seconds)
+. read bytes (MB)
+. read IOPS
+. write bytes (MB)
+. write IOPS
+. read bytes/s (MB/s)
+. write bytes/s (MB/s)
+. device util 
+
+== Combinations
+
+Using 1 GiB and 1 MiB blocks (e.g. *spit -f device -G 1GiB -c rM1...*) the following options have the following behaviour:
+
+[cols="1,1,1,1,5"]
+|===
+| Command | Round Details | Data written | Round action | Explanation
+| rM1x1   | 1 GiB / 1024     | 1 GiB       | none  | write positions in a loop until 1 GiB of IO
+| rk256x1 | 1 GiB / 4096     | 1 GiB       | none  | write positions in a loop until 1 GiB of IO
+| rM1x2   | 1 GiB / 1024     | 2 GiB       | none  | write positions in a loop until 2 GiB of IO
+| rM1X1   | 1024 / 1 GiB     | 1 GiB       | none  | write each position once
+| rM1X2   | 1024 / 1 GiB     | 2 GiB       | none  | write each position twice
+| rM1x1n  | 1 1GiB / 1024    | 1 GiB       |rerandomize | write positions in a loop until 1 GiB of IO
+| rM1x2n  | 1 1GiB / 1024    | 1 GiB       |rerandomize| write positions in a loop until 1 GiB, then resuffle, repeat until 2 GiB
+| rM1     | time / time      | time        | none  | time based
+|===
+
+Note the *n* option performs a re-sampling (it's not just a
+shuffle). The *N* option adds a blockSize value to each position after
+each round.
+
+== EXIT STATUS
+
+*0*::
+  Success.
+
+*non-zero*::
+  Failure (syntax of usage error).
+  
+== BUGS
+
+Bugs will be rewarded by choc fish... in person :)
+
+== SEE ALSO
+
+*spitchecker*(1)
+
+== AFFILIATIONS
+
+Department of Computer Science, University of Waikato, New Zealand.
+
+Visit us, it's a lovely campus and a great place to live.
